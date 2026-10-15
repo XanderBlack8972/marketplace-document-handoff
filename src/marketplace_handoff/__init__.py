@@ -1,0 +1,2 @@
+"""Marketplace document handoff service."""
+
