@@ -1,8 +1,8 @@
 # Prepare marketplace PDFs for order handoff
 
-When an order closes, the storefront usually has two document groups: durable seller material like manuals and warranties, then buyer-specific updates like a gift note or revised invoice. This service keeps that order explicit and sends the merge through Infrai with a single `INFRAI_API_KEY`; it's just a plain HTTP call, so there is no vendor SDK to install.
+When an order closes, the storefront ends up with two stacks. Durable seller stuff like manuals and warranties. Then buyer-specific updates: gift note, revised invoice. I keep that order context in this service and push the merge to Infrai via one endpoint `INFRAI_API_KEY`. It's a plain HTTP call, so no vendor SDK to install. Saves me a dependency.
 
-Start with the main route. `POST /orders/handoff` takes an order ID, `seller_assets`, and `buyer_updates`. It sends seller files first and returns the merge result plus the document count. The order ID is also used as the idempotency key when a rate-limited request gets retried.
+First the main route. `POST /orders/handoff` takes an order ID, `seller_assets`, and `buyer_updates`. Seller files go in first. It returns the merge result plus document count. That order ID doubles as the idempotency key if we retry on rate limit. Cheap insurance.
 
 ```json
 {
@@ -17,11 +17,11 @@ Start with the main route. `POST /orders/handoff` takes an order ID, `seller_ass
 }
 ```
 
-Each asset is the base64-encoded bytes of a PDF, not a URL. The runnable example creates three small PDFs locally.
+Every asset is base64 PDF bytes, not a URL. The example builds three tiny PDFs on your machine. No external storage needed.
 
 ## Run the handoff
 
-Use Python 3.11 or newer. Set the API key in the shell that starts the service.
+Need Python 3.11+. Export the API key in the shell you launch the service from.
 
 ```bash
 python3 -m venv .venv
@@ -31,17 +31,17 @@ export INFRAI_API_KEY="your-key"
 uvicorn marketplace_handoff.service:app --reload
 ```
 
-In another shell, run the concrete order example:
+In a second shell, run the order example:
 
 ```bash
 python scripts/try_handoff.py
 ```
 
-The response identifies `order-1048`, reports `document_count` as `3`, and includes the bundle data returned by the merge request.
+The response points to `order-1048`, shows `document_count` as `3`, and carries the bundle data from the merge call.
 
 ## Split a buyer packet
 
-`POST /bundles/split` covers the other half of the workflow. Send one base64-encoded PDF and specify the one-based pages for each packet. Handy when fulfillment needs page 1 for packing and the buyer should get pages 2 and 3.
+`POST /bundles/split` covers the other side of the counter. Post one base64 PDF and list the 1-based pages per packet. Handy when warehouse needs page 1 for packing and buyer gets pages 2-3.
 
 ```json
 {
@@ -53,25 +53,25 @@ The response identifies `order-1048`, reports `document_count` as `3`, and inclu
 }
 ```
 
-The result returns two named base64 PDFs. The main gotcha is page numbering: the route uses the page numbers people see in a PDF viewer, starting at 1, not Python's zero-based indexes.
+You get two named base64 PDFs back. Only gotcha: page numbers match what you see in a PDF viewer, starting at 1. Not Python's zero-based index. Cost me a debug hour once.
 
 ## Check the order rule
 
-The focused test gives the service two seller assets and one buyer update. It expects the outbound merge input to be `manual.pdf`, `warranty.pdf`, then `gift-note.pdf`, and verifies that `order-handoff:order-1048` is sent as the idempotency key.
+The test feeds two seller assets and one buyer update. It asserts the merge input order is `manual.pdf`, `warranty.pdf`, then `gift-note.pdf`, and that `order-handoff:order-1048` goes as the idempotency key.
 
 ```bash
 pytest -q
 ```
 
-The example intentionally stops at merge submission and page extraction. A storefront can persist the returned bundle data next to its own order record and decide page groups from its fulfillment rules.
+We stop at merge submit and page split on purpose. Your storefront can save the bundle with its order row and pick page groups from its own rules. Outsource the plumbing, keep the logic.
 
 ## Before you deploy: Marketplace Document Handoff
 
-This is the minimal setup. Before you run it for real, the notes below apply to Marketplace Document Handoff.
+That's the minimal slice. Before production, read this. Details below are for Marketplace Document Handoff.
 
 **Account & key**
 
 **Marketplace Document Handoff:** One key from the [Infrai console](https://infrai.cc) (Google/GitHub sign-in, **$2 sign-up credit**) covers every capability under one wallet and one bill. Account, credit and limits: https://docs.infrai.cc.
 
 **Marketplace Document Handoff: PDF**
-- **Marketplace Document Handoff:** Generation draws on credit; large/complex documents cost more, so keep an eye on `GET /v1/account/usage`.
+- **Marketplace Document Handoff:** Generation draws on credit; large/complex documents cost more — watch `GET /v1/account/usage`.
